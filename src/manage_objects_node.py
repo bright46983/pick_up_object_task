@@ -74,12 +74,15 @@ class ManageObject():
         return resp.success
 
     def setup_escenario(self):
-        self.beer_loc = self.locations[random.randint(
-            0, len(self.locations)-1)]
+        # self.beer_loc = self.locations[random.randint(
+        #     0, len(self.locations)-1)]
+        
+        self.beer_loc = self.locations[0]
         self.spawn_model('beer', self.model_beer, self.beer_loc)
-        while self.coke_loc is None or self.coke_loc == self.beer_loc:
-            self.coke_loc = self.locations[random.randint(
-                0, len(self.locations)-1)]
+        # while self.coke_loc is None or self.coke_loc == self.beer_loc:
+        #     self.coke_loc = self.locations[random.randint(
+        #         0, len(self.locations)-1)]
+        self.coke_loc = self.locations[1]
         return self.spawn_model('coke', self.model_coke, self.coke_loc)
 
     def handle_check_object(self, req):
