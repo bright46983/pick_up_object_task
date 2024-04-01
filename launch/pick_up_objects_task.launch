@@ -5,7 +5,7 @@
     <node pkg="pick_up_objects_task" type="manage_objects_node.py" name="manage_objects" args="$(find pick_up_objects_task)" output="screen"/>
 
     <!-- GRID MAP RELATED NODE -->
-    <node pkg="turtlebot_online_path_planning" type="laser_scan_to_point_cloud_node.py" name="laserscan_to_pointcloud"/>
+    <node pkg="pick_up_objects_task" type="laser_scan_to_point_cloud_node.py" name="laserscan_to_pointcloud"/>
     <node pkg="octomap_server" type="octomap_server_node" name="octomap" output="screen"/>
 
 
