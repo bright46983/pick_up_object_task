@@ -146,6 +146,7 @@ class MoveToGoal(py_trees.behaviour.Behaviour):
         self.blackboard.register_key("goal", access=py_trees.common.Access.READ)
         self.distance_threshold = 0.15
         self.current_pose = [0,0]
+        self.last_pose = [0,0]
 
 
     def setup(self):
@@ -162,18 +163,23 @@ class MoveToGoal(py_trees.behaviour.Behaviour):
     def update(self):
         # Send the command to turtlebot
         self.logger.debug("  %s [FindPickupSpot::update()]" % self.name)
-        if not self.goal_sent:
+        moved_dis = np.linalg.norm(np.array(self.current_pose) - np.array(self.last_pose))
+        rospy.logerr("MOVE DIS: %s" % moved_dis)
+
+        if not self.goal_sent or moved_dis < 0.001:
+            rospy.logerr("SEND GOAL")
             goal = PoseStamped()
             goal.pose.position.x = self.blackboard.goal[0]
             goal.pose.position.y = self.blackboard.goal[1]
-            rospy.logerr("BUGGGGGGGGGGGGGGGGGG")
             
             self.goal_pub.publish(goal)
             self.goal_sent = True
-        print(self.current_pose)
+            time.sleep(2)
+
         distance_to_goal = np.linalg.norm(np.array(self.blackboard.goal) - np.array(self.current_pose))
 
         if distance_to_goal > self.distance_threshold:
+            self.last_pose = self.current_pose
             return py_trees.common.Status.RUNNING
         else:
             self.goal_sent = False
@@ -192,18 +198,22 @@ class FindPickupSpot(py_trees.behaviour.Behaviour):
     def __init__(self, name):
         super(FindPickupSpot, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
-        self.blackboard.register_key("pickup_index", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key("pickup_visited", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key("goal", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key("pickup_positions", access=py_trees.common.Access.WRITE)
 
-        self.blackboard.register_key("pickup_index", access=py_trees.common.Access.READ)
+        self.blackboard.register_key("pickup_visited", access=py_trees.common.Access.READ)
         self.blackboard.register_key("pickup_positions", access=py_trees.common.Access.READ)
+
+        self.current_pose = [0,0]
         
         
     def setup(self):
         self.logger.debug("  %s [FindPickupSpot::setup()]" % self.name)
-        self.blackboard.pickup_positions = [[1.25,0.5],[1.25,-1.25],[0.0,-1.25],[-0.5,1.25],[-1.25,0.5]]
-        self.blackboard.pickup_index = 0
+        self.odom_sub = rospy.Subscriber("/odom", Odometry, self.get_odom)
+        self.blackboard.pickup_positions = [[1.55,0.5],[1.00,-1.25],[0.0,-0.97],[-0.22,1.25],[-1.25,0.22]]
+        # [[1.25,0.5],[1.25,-1.25],[0.0,-1.25],[-0.5,1.25],[-1.25,0.5]] objects' positions
+        self.blackboard.pickup_visited = [False,False,False,False,False]
         
     def initialise(self):
         self.logger.debug("  %s [FindPickupSpot::initialise()]" % self.name)
@@ -212,11 +222,26 @@ class FindPickupSpot(py_trees.behaviour.Behaviour):
         self.logger.debug("  %s [FindPickupSpot::update()]" % self.name)
         time.sleep(1)
         try:
-            # Extract the goal from pickup_positions list using current pickup_index
-            self.blackboard.goal = self.blackboard.pickup_positions[self.blackboard.pickup_index]
-            # Increment the pickup_index
-            self.blackboard.pickup_index = self.blackboard.pickup_index + 1
-            return py_trees.common.Status.SUCCESS
+            # Finding the closet pickup position that is not visited yet
+            least_dis = 9999999
+            pickup_index = -1
+            for i in range(len(self.blackboard.pickup_positions)):
+                if self.blackboard.pickup_visited[i] == False:
+                    distance_to_spot = np.linalg.norm(np.array(self.blackboard.pickup_positions[i]) - np.array(self.current_pose))
+                    if distance_to_spot < least_dis:
+                        
+                        pickup_index = i
+                        least_dis = distance_to_spot
+
+            rospy.logerr("PICKUP SPOT IS: {}".format(pickup_index))
+            if pickup_index < 5:
+                self.blackboard.goal = self.blackboard.pickup_positions[pickup_index]
+                # Update visited spot
+                self.blackboard.pickup_visited[pickup_index] = True
+                return py_trees.common.Status.SUCCESS
+            else :
+                rospy.logerr("[FindPickupSpot::update()]" + "Fail")
+                return py_trees.common.Status.FAILURE
         except:
             rospy.logerr("[FindPickupSpot::update()]" + "Fail")
             return py_trees.common.Status.FAILURE
@@ -224,6 +249,10 @@ class FindPickupSpot(py_trees.behaviour.Behaviour):
         
     def terminate(self, new_status):
         self.logger.debug("  %s [FindPickupSpot::terminate().terminate()][%s->%s]" % (self.name, self.status, new_status))
+
+    def get_odom(self, odom):
+        self.current_pose = [odom.pose.pose.position.x, odom.pose.pose.position.y]
+    
 
 # Funtion to determine the drop spot according to blackboard variables
 class FindDropSpot(py_trees.behaviour.Behaviour):
@@ -265,9 +294,9 @@ class Finished(py_trees.behaviour.Behaviour):
     def __init__(self, name):
         super(Finished, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
-        self.blackboard.register_key("pickup_index", access=py_trees.common.Access.READ)
+        self.blackboard.register_key("pickup_visited", access=py_trees.common.Access.READ)
         self.blackboard.register_key("object_delivered", access=py_trees.common.Access.READ)
-        self.blackboard.register_key("pickup_index", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key("pickup_visited", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key("object_delivered", access=py_trees.common.Access.WRITE)
 
     def setup(self):
@@ -279,7 +308,7 @@ class Finished(py_trees.behaviour.Behaviour):
     def update(self):
         self.logger.debug("  %s [Finished::update()]" % self.name)
         
-        if self.blackboard.object_delivered == 2 or self.blackboard.pickup_index >= 5:
+        if self.blackboard.object_delivered == 2 or all(self.blackboard.pickup_visited):
             rospy.logerr("Finised")
             return py_trees.common.Status.FAILURE
         else:
